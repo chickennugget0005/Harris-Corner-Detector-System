@@ -1,0 +1,64 @@
+#!/usr/bin/python3
+import cv2
+import numpy as np
+
+# Open the default video camera (0 = default webcam, or use IP/device path)
+cap = cv2.VideoCapture("/home/seal/Documents/ZED")  # You can replace 0 with your video source
+
+if not cap.isOpened():
+    print("Error: Cannot open video stream.")
+    exit()
+
+while True:
+    ret, img = cap.read()
+    if not ret:
+        print("Error: Failed to read frame.")
+        break
+
+    # Get image dimensions and split
+    height, width, _ = img.shape
+    mid_x = width // 2
+    left_half = img[:, :mid_x]
+    right_half = img[:, mid_x:]
+
+    # Convert to grayscale
+    gray_left = cv2.cvtColor(left_half, cv2.COLOR_BGR2GRAY)
+    gray_right = cv2.cvtColor(right_half, cv2.COLOR_BGR2GRAY)
+
+    # Apply Gaussian Blur
+    kernel_size = 7
+    sigma = 0
+    gray_left = cv2.GaussianBlur(gray_left, (kernel_size, kernel_size), sigma)
+    gray_right = cv2.GaussianBlur(gray_right, (kernel_size, kernel_size), sigma)
+
+    # Convert to float32
+    gray_left = np.float32(gray_left)
+    gray_right = np.float32(gray_right)
+
+    # Harris corner detection
+    dst_left = cv2.cornerHarris(gray_left, blockSize=2, ksize=3, k=0.04)
+    dst_right = cv2.cornerHarris(gray_right, blockSize=2, ksize=3, k=0.04)
+
+    # Dilate to enhance corners
+    dst_left = cv2.dilate(dst_left, None)
+    dst_right = cv2.dilate(dst_right, None)
+
+    # Create visualization images
+    left_vis = left_half.copy()
+    right_vis = right_half.copy()
+
+    # Mark corners in red
+    left_vis[dst_left > 0.005 * dst_left.max()] = [0, 0, 255]
+    right_vis[dst_right > 0.005 * dst_right.max()] = [0, 0, 255]
+
+    # Show the results
+    cv2.imshow("Left Half Corners", left_vis)
+    cv2.imshow("Right Half Corners", right_vis)
+
+    # Press 'q' to quit
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Cleanup
+cap.release()
+cv2.destroyAllWindows()
