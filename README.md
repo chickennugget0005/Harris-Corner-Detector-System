@@ -1,5 +1,5 @@
 # Create a virtual Environment to run any of these programs
-# You need to download pakages OpenCV, numpy as np, p& yzed.sl as
+# You need to download pakages OpenCV, numpy as np, p& yzed.sl as sl
 
 
 #Error when tried to install python package because it can corrupt the system python installation used at system level. Ubuntu 22.04+
