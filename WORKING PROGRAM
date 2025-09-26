@@ -1,76 +1,70 @@
 #!/usr/bin/env python3     # Run this program using Python 3
 
-import cv2                 # OpenCV: tools for computer vision
-import numpy as np         # NumPy: handles image arrays and math
-import pyzed.sl as sl      # ZED SDK: talk to the ZED stereo camera
+import cv2
+import numpy as np
+import pyzed.sl as sl
 
 # --- ZED setup ---
-zed = sl.Camera()          # Make a camera object
+zed = sl.Camera()
 
-init_params = sl.InitParameters()                   # Create a settings object
-init_params.camera_resolution = sl.RESOLUTION.VGA  # Camera Resolution
-init_params.camera_fps = 60                         # Set frames per second
-init_params.depth_mode = sl.DEPTH_MODE.NONE         # Turn off depth (just video)
+init_params = sl.InitParameters()
+init_params.camera_resolution = sl.RESOLUTION.HD720
+init_params.camera_fps = 60
+init_params.depth_mode = sl.DEPTH_MODE.NONE
 
-# Try to open the camera with those settings
 if zed.open(init_params) != sl.ERROR_CODE.SUCCESS:
-    print("Camera open failed. Exit.")   # If it didn’t work, print error
-    exit()                               # Stop program
+    print("Camera open failed. Exit.")
+    exit()
 
-runtime = sl.RuntimeParameters()   # Per-frame settings (default is fine)
-img_left = sl.Mat()                # Empty container for left image
-img_right = sl.Mat()               # Empty container for right image
+runtime = sl.RuntimeParameters()
+img_left = sl.Mat()
+img_right = sl.Mat()
 
 # Keep running until you press 'q'
 while True:
-    if zed.grab(runtime) == sl.ERROR_CODE.SUCCESS:   # Grab a new frame
-        zed.retrieve_image(img_left, sl.VIEW.LEFT)   # Grab the Left Camera
-        zed.retrieve_image(img_right, sl.VIEW.RIGHT) # Grab the Right Camera
+    if zed.grab(runtime) == sl.ERROR_CODE.SUCCESS:
+        zed.retrieve_image(img_left, sl.VIEW.LEFT)
+        zed.retrieve_image(img_right, sl.VIEW.RIGHT)
 
-        # Convert ZED image (BGRA) into normal OpenCV image (BGR)
         frame_left_bgr  = cv2.cvtColor(img_left.get_data(),  cv2.COLOR_BGRA2BGR)
         frame_right_bgr = cv2.cvtColor(img_right.get_data(), cv2.COLOR_BGRA2BGR)
 
-        # --- Outline the object Functions ---
+# --- Outline the object Functions ---
         def detect_Object(frame_bgr, win="Corners"):
-            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)   # Make grayscale
-            gray = cv2.GaussianBlur(gray, (11, 11), 2)           # Blur to reduce noise
-            dst = cv2.cornerHarris(np.float32(gray), 2, 3, 0.04) # Run HCDS
-            dst = cv2.dilate(dst, None)                          # Thicken the corner marks
-            vis = frame_bgr.copy()                               # Copy the image to draw on
-            thresh = 0.01 * dst.max()                            # Pick a corner strength cutoff
-            vis[dst > thresh] = [0, 0, 255]                      # Color corners red
-            ret, thresh = cv2.threshold(gray, 127, 255, 0)
-            contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-            cnt = contours[-1]
-            cv2.drawContours(vis, [cnt], 0, (0,255,0), 3)
-#
-# # --- SAFE contour drawing (won't crash) ---
-#            ret, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-#            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-#
-#            if contours:
-#                cnt = max(contours, key=cv2.contourArea)
-#
-#                if cv2.contourArea(cnt) > 10:
-#                    # smaller epsilon = more detailed line, larger = smoother
-#                    epsilon = 0.001 * cv2.arcLength(cnt, True)   # try 0.001–0.005
-#                    detailed_cnt = cv2.approxPolyDP(cnt, epsilon, True)
-#
-#                    cv2.drawContours(vis, [detailed_cnt], -1, (0, 255, 0), 2)
-#
-#            # else: nothing to draw; crucially, no contours[-1] indexing
-#
-            cv2.imshow(win, vis)                                 # Show result in a window
+        # Grayscale
+            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+            # --- ORB keypoints (safe even if none are found) ---
+            orb = cv2.ORB_create(nfeatures=1000, fastThreshold=7, edgeThreshold=15)
+            keypoints, descriptors = orb.detectAndCompute(gray, None)
+            output = cv2.drawKeypoints(
+                frame_bgr, keypoints, None, color=(0, 255, 0),
+                flags=cv2.DRAW_MATCHES_FLAGS_DEFAULT
+            )
+
+            # --- Robust binarization + contouring ---
+            # Otsu picks a threshold automatically; good when scene goes very dark/bright
+            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+            # Optional: clean tiny specks so contours are more stable
+            thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
+
+            contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            vis = output.copy()
+            if contours:  # only draw if we actually have any
+                cv2.drawContours(vis, contours, -1, (0, 255, 0), 2)
+
+            # Show results
+            cv2.imshow(win, vis)
+
 
         # Run corner detection on both images
         detect_Object(frame_left_bgr,  "Left Camera Corners")
         detect_Object(frame_right_bgr, "Right Camera Corners")
 
-        # Check if you pressed 'q' to quit
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-# When finished, close windows and release camera
 cv2.destroyAllWindows()
 zed.close()
